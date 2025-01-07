@@ -1,8 +1,15 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/michalronin/gator/internal/database"
 )
 
 type command struct {
@@ -14,7 +21,38 @@ func handlerLogin(s *state, cmd command) error {
 	if len(cmd.args) == 0 {
 		return errors.New("username required")
 	}
+	_, err := s.db.GetUser(context.Background(), cmd.args[0])
+	if err != nil {
+		fmt.Println("user not found")
+		os.Exit(1)
+	}
 	s.cfg.SetUser(cmd.args[0])
-	fmt.Println("Username has been set.")
+	fmt.Printf("user %v logged in\n", cmd.args[0])
 	return nil
+}
+
+func handlerRegister(s *state, cmd command) error {
+	if len(cmd.args) == 0 {
+		return errors.New("username required")
+	}
+	_, err := s.db.GetUser(context.Background(), cmd.args[0])
+	if err == nil {
+		fmt.Println("user with that name already exists")
+		os.Exit(1)
+	}
+	if err == sql.ErrNoRows {
+		user, err := s.db.CreateUser(context.Background(), database.CreateUserParams{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Name:      cmd.args[0],
+		})
+		if err != nil {
+			return err
+		}
+		s.cfg.SetUser(user.Name)
+		fmt.Printf("user has been created: %v", user)
+	}
+	return nil
+
 }
