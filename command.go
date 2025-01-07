@@ -80,3 +80,39 @@ func handlerUsers(s *state, cmd command) error {
 	}
 	return nil
 }
+
+func handlerAgg(s *state, cmd command) error {
+	url := "https://www.wagslane.dev/index.xml"
+	feed, err := fetchFeed(context.Background(), url)
+	if err != nil {
+		return err
+	}
+	fmt.Println(feed)
+	return nil
+}
+
+func handlerAddfeed(s *state, cmd command) error {
+	if len(cmd.args) < 2 {
+		fmt.Println("two parameters required: feed name and feed url")
+		os.Exit(1)
+	}
+	currentUser, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
+	if err != nil {
+		return err
+	}
+
+	feed, err := s.db.CreateFeed(context.Background(), database.CreateFeedParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      cmd.args[0],
+		Url:       cmd.args[1],
+		UserID:    currentUser.ID,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println(feed)
+	os.Exit(0)
+	return nil
+}
