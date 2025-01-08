@@ -112,6 +112,16 @@ func handlerAddfeed(s *state, cmd command) error {
 	if err != nil {
 		return err
 	}
+	_, feedFollowErr := s.db.CreateFeedFollow(context.Background(), database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    currentUser.ID,
+		FeedID:    feed.ID,
+	})
+	if feedFollowErr != nil {
+		return feedFollowErr
+	}
 	fmt.Println(feed)
 	os.Exit(0)
 	return nil
@@ -124,6 +134,45 @@ func handlerFeeds(s *state, cmd command) error {
 	}
 	for _, feed := range feeds {
 		fmt.Printf("* Name: %v, URL: %v, created by: %v\n", feed.Name, feed.Url, feed.Username)
+	}
+	return nil
+}
+
+func handlerFollow(s *state, cmd command) error {
+	if len(cmd.args) == 0 {
+		os.Exit(1)
+		return errors.New("url required as argument")
+	}
+	currentUser, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
+	if err != nil {
+		return err
+	}
+	feedToFollow, err := s.db.GetFeedByUrl(context.Background(), cmd.args[0])
+	if err != nil {
+		return err
+	}
+	feedFollow, err := s.db.CreateFeedFollow(context.Background(), database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    currentUser.ID,
+		FeedID:    feedToFollow.ID,
+	})
+	fmt.Printf("Feed %v followed by %v", feedFollow.FeedName, feedFollow.UserName)
+	return nil
+}
+
+func handlerFollowing(s *state, cmd command) error {
+	currentUser, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
+	if err != nil {
+		return err
+	}
+	feedsFollowed, err := s.db.GetFeedFollowsForUser(context.Background(), currentUser.ID)
+	if err != nil {
+		return err
+	}
+	for _, feed := range feedsFollowed {
+		fmt.Println("* ", feed.FeedName)
 	}
 	return nil
 }
