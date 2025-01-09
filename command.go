@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/michalronin/gator/internal/database"
 )
 
@@ -186,6 +188,34 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	limit := 0
+	if len(cmd.args) == 0 {
+		limit = 2
+	} else {
+
+		limitArg, err := strconv.Atoi(cmd.args[0])
+		if err != nil {
+			limit = 2
+		} else {
+			limit = limitArg
+		}
+	}
+	posts, err := s.db.GetPostsForUser(context.Background(), database.GetPostsForUserParams{
+		UserID: user.ID,
+		Limit:  int32(limit),
+	})
+	if err != nil {
+		return err
+	}
+	for _, post := range posts {
+		fmt.Printf("* %v\n", post.Title)
+		fmt.Printf("	* %v\n", post.Description.String)
+		fmt.Printf("	* %v\n", post.Url)
+	}
+	return nil
+}
+
 // middleware
 func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
 	return func(s *state, cmd command) error {
@@ -216,7 +246,57 @@ func scrapeFeeds(s *state) error {
 		return err
 	}
 	for _, item := range feed.Channel.Item {
-		fmt.Println(item.Title)
+		publishedAt, _ := parseTime(item.PubDate)
+		if err := s.db.CreatePost(context.Background(), database.CreatePostParams{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Title:     item.Title,
+			Url:       item.Link,
+			Description: sql.NullString{
+				String: item.Description,
+				Valid:  true,
+			},
+			PublishedAt: sql.NullTime{
+				Time:  publishedAt,
+				Valid: true,
+			},
+			FeedID: feedToFetch.ID,
+		}); err != nil {
+			if pqErr, ok := err.(*pq.Error); ok {
+				if pqErr.Code == "23505" { // trying to insert already existing unique data
+					continue
+				} else {
+					return err
+				}
+			}
+		}
 	}
 	return nil
+}
+
+// helpers
+func parseTime(dateStr string) (time.Time, error) {
+	layouts := []string{
+		time.RFC1123Z, // "Mon, 02 Jan 2006 15:04:05 -0700"
+		time.RFC1123,  // "Mon, 02 Jan 2006 15:04:05 MST"
+		time.RFC3339,  // "2006-01-02T15:04:05Z07:00"
+		time.RFC822Z,  // "02 Jan 06 15:04 -0700"
+		time.RFC822,   // "02 Jan 06 15:04 MST"
+		"2006-01-02T15:04:05-07:00",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+
+	var firstErr error
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, dateStr)
+		if err == nil {
+			return t, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return time.Time{}, fmt.Errorf("could not parse date '%s': %v", dateStr, firstErr)
 }
